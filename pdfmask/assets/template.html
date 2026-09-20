@@ -177,7 +177,7 @@
 <div class="hint">黑色方块 = 原文用黑体或下划线标出的重点与填空：<b class="k">鼠标悬停</b>显示答案，<b class="k">点一下</b>常亮（再点复原）。共 __PAGES__ 页。<br>
 <b class="k">划选文字</b>会弹出小菜单（涂黑 / 取消涂黑 / 同格式批量）；<b class="k">按住 Alt 划选</b>则直接生效，不用点菜单。<br>
 <b class="k">按住 Ctrl 拖动</b>＝随手画线（圈重点、划横线）；点顶部 <b class="k">✎ 画笔</b> 进入正式画笔模式，可选颜色粗细、有橡皮。<br>
-<b class="k">双击空白处</b>写批注（能拖动、换颜色）。<b class="k">Ctrl+Z 撤销</b>、<b class="k">Ctrl+Y 重做</b> —— 涂黑、批注、手绘都算。<br>
+<b class="k">双击行间/页面空白处</b>写批注（能拖动、换颜色）。<b class="k">Ctrl+Z 撤销</b>、<b class="k">Ctrl+Y 重做</b> —— 涂黑、批注、手绘都算。<br>
 所有改动都自动存在本机浏览器里。<b class="k">换浏览器或清理缓存前</b>，记得点「导出」存一份备份。</div>
 <main>
 __BODY__
@@ -340,13 +340,30 @@ document.querySelectorAll('b.b').forEach(function(el){
     notes.forEach(function(n){ add(n, false); });
   }
 
-  /* 双击新建（双击到文字上时交给「涂黑」菜单处理） */
+  /** 双击的这个点是不是正好压在文字上？
+      不能靠「有没有选区」来判断——浏览器双击几乎总会选中点东西，
+      那样会把「双击空白写批注」整个挡掉。这里直接量文字行的外框。 */
+  function onLetter(x, y){
+    var el = document.elementFromPoint(x, y);
+    if (!el || !el.closest) return false;
+    var holder = el.closest('p, h1, h2');
+    if (!holder) return false;
+    var range = document.createRange();
+    range.selectNodeContents(holder);
+    var rects = range.getClientRects();
+    for (var i = 0; i < rects.length; i++) {
+      var r = rects[i];
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return true;
+    }
+    return false;
+  }
+
+  /* 双击：落在文字上交给「划选涂黑」菜单，落在空白处写批注 */
   var mainEl = document.querySelector('main');
   if (mainEl) mainEl.addEventListener('dblclick', function(e){
     if (document.body.classList.contains('draw')) return;
-    if (e.target.closest('.note')) return;
-    var s = window.getSelection && window.getSelection();
-    if (s && !s.isCollapsed) return;          // 选中了词 → 让划选菜单出场
+    if (e.target.closest('.note') || e.target.closest('#pen')) return;
+    if (onLetter(e.clientX, e.clientY)) return;
     var page = e.target.closest('.page');
     if (!page) return;
     var pr = page.getBoundingClientRect();
