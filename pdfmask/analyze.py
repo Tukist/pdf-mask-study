@@ -98,7 +98,50 @@ def underline_rects(page) -> list:
     return out
 
 
-def collect_rows(page, body_size: float) -> list[dict]:
+def normalize_line(text: str) -> str:
+    """把页码之类的数字抹平，用来判断两行是不是同一个页眉。"""
+    return re.sub(r"\d+", "#", text.strip())
+
+
+def detect_running_heads(doc, sample: int = 30) -> tuple[set, set]:
+    """找出在多数页面的顶部/底部反复出现的文字 —— 那就是页眉页脚。
+
+    只看位置是不够的：有些资料第一页的大标题也在顶部，按位置一刀切会丢内容。
+    重复出现才是页眉的本质特征。
+
+    采样要**均匀铺开**：有些资料前后两段的页眉不一样，只看开头几页会漏掉。
+    """
+    top: Counter = Counter()
+    bottom: Counter = Counter()
+    total = doc.page_count
+    n = min(sample, total)
+    step = max(1, total // n)
+    indexes = list(range(0, total, step))[:n]
+
+    for i in indexes:
+        page = doc[i]
+        height = page.rect.height
+        for block in page.get_text("dict")["blocks"]:
+            if block["type"] != 0:
+                continue
+            for line in block["lines"]:
+                text = normalize_line("".join(s["text"] for s in line["spans"]))
+                if not text:
+                    continue
+                if line["bbox"][3] < height * 0.15:
+                    top[text] += 1
+                elif line["bbox"][1] > height * 0.85:
+                    bottom[text] += 1
+    # 门槛＝采样数的 15%（至少 3 次）。一份资料前后换页眉、或页眉只覆盖
+    # 前几章都很常见，用「过半」会漏；而「同一位置 + 整行文字完全相同」
+    # 本身已经足够严格，不会把正文误判进来。
+    need = max(3, int(len(indexes) * 0.15))
+    return ({k for k, v in top.items() if v >= need},
+            {k for k, v in bottom.items() if v >= need})
+
+
+def collect_rows(page, body_size: float,
+                 heads: set = frozenset(), feet: set = frozenset()) -> list[dict]:
     """把一页的文字按「视觉行」聚合，并逐字标出哪些属于填空答案。"""
     page_h = page.rect.height
     ulines = underline_rects(page)
@@ -109,10 +152,12 @@ def collect_rows(page, body_size: float) -> list[dict]:
         if block["type"] != 0:
             continue
         for line in block["lines"]:
+            line_text = normalize_line("".join(span_text(s) for s in line["spans"]))
+            if line["bbox"][3] < page_h * 0.15 and line_text in heads:
+                continue                           # 反复出现的页眉
+            if line["bbox"][1] > page_h * 0.85 and line_text in feet:
+                continue                           # 反复出现的页脚（页码等）
             for span in line["spans"]:
-                y0, y1 = span["bbox"][1], span["bbox"][3]
-                if y1 < page_h * 0.08 or y0 > page_h * 0.93:
-                    continue                       # 页眉页脚
                 if not span_text(span).strip():
                     continue
                 spans.append(span)
@@ -230,19 +275,22 @@ def mark_answer_key(rows: list[dict]) -> list[dict]:
 
 # ---------------------------------------------------------------- 段落重建
 
-def is_big_title(row, title_fonts: set[str]) -> bool:
-    """这一行是不是标题？（标题一律不遮）"""
+def is_big_title(row, body_size: float, title_fonts: set[str]) -> bool:
+    """这一行是不是标题？（标题一律不遮）
+
+    注意 title_fonts 里**不能**放正文字体：有些资料的大段正文本身就是
+    14 号往上（比如填空题部分），只按字号一刀切会把整段正文误判成标题。
+    """
     text = "".join(c["c"] for c in row["chars"]).strip()
-    if HARD_H1.match(text):                      # 「第X部分」「练习题」
+    if HARD_H1.match(text) or SMALL_TITLE.match(text):
         return True
-    if row["size"] >= 14.6:
+    if row["size"] >= body_size * 1.12:          # 明显比正文大
         return True
-    if row["size"] >= 14.0 and row["fonts"] <= title_fonts:
-        return True
-    return bool(SMALL_TITLE.match(text))         # 「一、党的性质」这种短标题
+    return row["size"] >= 14.0 and row["fonts"] <= title_fonts
 
 
-def build_blocks(rows: list[dict], title_fonts: set[str]) -> list[dict]:
+def build_blocks(rows: list[dict], body_size: float,
+                 title_fonts: set[str]) -> list[dict]:
     """把行合并成段落 / 标题块。"""
     blocks: list[dict] = []
     prev_y = None
@@ -252,7 +300,7 @@ def build_blocks(rows: list[dict], title_fonts: set[str]) -> list[dict]:
             continue
         gap = (row["y"] - prev_y) if prev_y is not None else 0
 
-        if is_big_title(row, title_fonts):
+        if is_big_title(row, body_size, title_fonts):
             hard = bool(HARD_H1.match(plain))
             prev_text = ""
             if blocks:
@@ -300,13 +348,17 @@ def analyze(path: str, progress=None) -> list[dict]:
     """
     doc = fitz.open(path)
     body_font, body_size = document_profile(doc)
-    title_fonts = {body_font, "SimHei", "MicrosoftYaHei", "Arial", "Helvetica"}
+    # 标题字体：只认这些「一眼就是标题」的字体，绝不把正文字体算进来
+    title_fonts = {"SimHei", "MicrosoftYaHei", "SimSun", "STHeiti",
+                   "Arial", "Helvetica", "TCXBSJW--GB1-0"}
+
+    heads, feet = detect_running_heads(doc)
 
     pages = []
     total = doc.page_count
     for i in range(total):
-        rows = mark_answer_key(collect_rows(doc[i], body_size))
-        blocks = build_blocks(rows, title_fonts)
+        rows = mark_answer_key(collect_rows(doc[i], body_size, heads, feet))
+        blocks = build_blocks(rows, body_size, title_fonts)
         pages.append({"page": i + 1, "blocks": blocks})
         if progress:
             progress(i + 1, total)
