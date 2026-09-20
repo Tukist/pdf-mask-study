@@ -11,6 +11,11 @@ build/
 dist/
 *.spec
 
+# 调试临时文件
+_*.js
+_t*.html
+*.spec
+
 # 生成的网页（示例的输出不进版本库）
 examples/*_背诵版.html
 *_背诵版.html
