@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import json
 import os
 import sys
 
@@ -28,42 +29,103 @@ def escape(text: str) -> str:
     return html.escape(text, quote=False)
 
 
-def render_chars(chars: list[dict]) -> str:
-    """把一串字符渲染成 HTML：答案是黑幕块，留白填空是横线。"""
-    pieces: list[tuple] = []
-    buf, state = "", None
+FONT_CN = {
+    "simhei": "黑体", "simsun": "宋体", "fangsong": "仿宋", "kaiti": "楷体",
+    "microsoftyahei": "微软雅黑", "simkai": "楷体", "msyh": "微软雅黑",
+    "timesnewroman": "Times", "arial": "Arial", "helvetica": "Helvetica",
+}
+
+
+def font_cn(name: str) -> str:
+    """把字体名翻译成人话，认不出来就用原名。"""
+    low = name.lower()
+    for key, cn in FONT_CN.items():
+        if key in low:
+            return cn
+    return name
+
+
+def sig_of(ch: dict) -> tuple:
+    """一个字符的「格式」＝ 字体 + 字号 + 粗体 + 下划线。"""
+    return (ch["font"], ch["size"], bool(ch.get("bold")), bool(ch.get("ul")))
+
+
+def format_name(sig: tuple) -> str:
+    font, size, bold, ul = sig
+    name = font_cn(font)
+    parts = [name]
+    if bold and not any(k in name for k in ("黑", "粗", "Hei", "Bold")):
+        parts.append("粗体")
+    parts.append("%g" % size)
+    if ul:
+        parts.append("下划线")
+    return " ".join(parts)
+
+
+def collect_formats(pages: list[dict]) -> tuple[dict, list]:
+    """扫全文给每种格式编号。
+
+    出现最多的那个排 0 号，网页里可以省略不写，省点体积。
+    """
+    counter: dict = {}
+    for page in pages:
+        for block in page["blocks"]:
+            for ch in block["chars"]:
+                if ch.get("hole"):
+                    continue
+                sig = sig_of(ch)
+                counter[sig] = counter.get(sig, 0) + 1
+    ordered = sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))
+    ids = {sig: i for i, (sig, _) in enumerate(ordered)}
+    return ids, [format_name(sig) for sig, _ in ordered]
+
+
+def render_chars(chars: list[dict], fmt_ids: dict) -> str:
+    """把一串字符渲染成 HTML。
+
+    包裹方式（黑幕 / 普通）按「是否遮住 + 格式」分组：
+    遮住的用 <b class="b">，没遮的用 <span data-f>；0 号格式（最常见那种）
+    省略属性，省体积。
+    """
+    out: list[str] = []
+    buf, cur = "", None
+
+    def flush() -> None:
+        nonlocal buf, cur
+        if not buf:
+            return
+        if cur is None or not cur[1]:
+            # 没遮的普通文字
+            if cur is None or cur[0] == 0:
+                out.append(escape(buf))
+            else:
+                out.append('<span data-f="%d">%s</span>' % (cur[0], escape(buf)))
+        else:
+            core = buf.strip(" ")
+            if not core:
+                out.append(escape(buf))
+            else:
+                pad_l = len(buf) - len(buf.lstrip(" "))
+                pad_r = len(buf) - len(buf.rstrip(" "))
+                fid = ' data-f="%d"' % cur[0] if cur[0] else ""
+                out.append(" " * pad_l
+                           + '<b class="b"%s>%s</b>' % (fid, escape(core))
+                           + " " * pad_r)
+        buf = ""
+
     for ch in chars:
         if ch.get("hole"):
-            if buf:
-                pieces.append((state, buf))
-                buf = ""
-            pieces.append(("hole", ch))
+            flush()
+            out.append('<i class="cl" style="width:%sem"></i>' % ch["w"])
             continue
-        st = ch["ans"]
-        if state is None:
-            state = st
-        if st != state:
-            pieces.append((state, buf))
-            buf, state = "", st
+        key = (fmt_ids.get(sig_of(ch), 0), ch["ans"])
+        if cur is None:
+            cur = key
+        elif key != cur:
+            flush()
+            cur = key
         buf += ch["c"]
-    if buf:
-        pieces.append((state, buf))
-
-    out = []
-    for kind, val in pieces:
-        if kind == "hole":
-            out.append('<i class="cl" style="width:%sem"></i>' % val["w"])
-            continue
-        if not kind:
-            out.append(escape(val))
-            continue
-        core = val.strip(" ")
-        if not core:
-            out.append(escape(val))
-            continue
-        pad_l = len(val) - len(val.lstrip(" "))
-        pad_r = len(val) - len(val.rstrip(" "))
-        out.append(" " * pad_l + '<b class="b">%s</b>' % escape(core) + " " * pad_r)
+    flush()
     return "".join(out)
 
 
@@ -82,6 +144,7 @@ def doc_key(title: str, pages: list[dict]) -> str:
 
 def render(pages: list[dict], title: str, footer: str = "") -> str:
     """pages 来自 analyze()，返回完整的 HTML 文本。"""
+    fmt_ids, fmt_names = collect_formats(pages)
     body = []
     for page in pages:
         parts = []
@@ -93,9 +156,10 @@ def render(pages: list[dict], title: str, footer: str = "") -> str:
             tag = block["kind"]
             if tag in ("h1", "h2"):
                 parts.append('<%s class="t" data-b="%d">%s</%s>'
-                             % (tag, bi, render_chars(chars), tag))
+                             % (tag, bi, render_chars(chars, fmt_ids), tag))
             else:
-                parts.append('<p data-b="%d">%s</p>' % (bi, render_chars(chars)))
+                parts.append('<p data-b="%d">%s</p>'
+                             % (bi, render_chars(chars, fmt_ids)))
         body.append('<section class="page" id="p%d">'
                     '<span class="pn">%d</span>\n%s\n</section>'
                     % (page["page"], page["page"], "\n".join(parts)))
@@ -105,6 +169,7 @@ def render(pages: list[dict], title: str, footer: str = "") -> str:
                      ("__PAGES__", str(len(pages))),
                      ("__BODY__", "\n".join(body)),
                      ("__DOCKEY__", doc_key(title, pages)),
+                     ("__FMT__", json.dumps(fmt_names, ensure_ascii=False)),
                      ("__FOOTER__", footer)):
         tpl = tpl.replace(key, val)
     return tpl

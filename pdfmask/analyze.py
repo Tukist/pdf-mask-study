@@ -200,6 +200,9 @@ def collect_rows(page, body_size: float,
                     "ans": bool(emphasized or (under and black)),
                     "size": round(span["size"], 1),
                     "font": span["font"],
+                    # 下面是「格式」信息：用户可以在网页上按格式批量涂黑
+                    "bold": bool(emphasized),
+                    "ul": bool(under),
                     "x0": x0, "x1": x1, "y1": y1,
                 })
             prev_end = span["bbox"][2]

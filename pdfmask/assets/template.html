@@ -98,12 +98,23 @@
   #selmenu{position:fixed; z-index:30; display:none; padding:5px 6px;
            background:#2f333d; border-radius:9px; box-shadow:0 5px 18px rgba(0,0,0,.28);
            font-family:"Microsoft YaHei",system-ui,sans-serif; font-size:13px;
-           transform:translateX(-50%); white-space:nowrap}
+           transform:translateX(-50%); white-space:nowrap;
+           flex-wrap:wrap; justify-content:center; max-width:94vw; box-sizing:border-box}
   #selmenu.show{display:flex; gap:4px}
   #selmenu button{border:0; background:transparent; color:#fff; font:inherit;
                   padding:4px 10px; border-radius:6px; cursor:pointer}
   #selmenu button:hover{background:#ffffff2e}
   #selmenu .hintx{color:#ffffff8c; padding:4px 4px 4px 7px; font-size:12px}
+  #selmenu .fmtlabel{color:#ffd88a; font-size:12px; padding:4px 8px 4px 6px;
+                     border-right:1px solid #ffffff2b; margin-right:2px; max-width:150px;
+                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  #selmenu .vsep{width:1px; background:#ffffff33; margin:3px 3px}
+  #toast{position:fixed; left:50%; bottom:26px; z-index:40; transform:translate(-50%, 10px);
+         background:#2f333d; color:#fff; padding:8px 16px; border-radius:8px;
+         font-family:"Microsoft YaHei",system-ui,sans-serif; font-size:13px;
+         opacity:0; pointer-events:none; transition:opacity .18s, transform .18s;
+         box-shadow:0 6px 20px rgba(0,0,0,.25); max-width:88vw; text-align:center}
+  #toast.show{opacity:1; transform:translate(-50%, 0)}
   body.draw #selmenu{display:none !important}
   @media (max-width:560px){
     body{font-size:16px}
@@ -700,6 +711,7 @@ document.querySelectorAll('b.b').forEach(function(el){
 
   /* ================= 划选涂黑：把选中的文字盖住 / 放开 ================= */
   var MKEY = 'pdfmask-mask::' + DOC;
+  var FMT = __FMT__ || [];          // 格式名表，下标就是元素的 data-f
   var overrides = {};
   try { overrides = JSON.parse(localStorage.getItem(MKEY) || '{}') || {}; } catch (e) { overrides = {}; }
   function saveMasks(){
@@ -724,10 +736,14 @@ document.querySelectorAll('b.b').forEach(function(el){
         }
         continue;                       // 元素本身不是字符，字符在它的文本子节点里
       }
-      var masked = !!(node.parentNode && node.parentNode.closest
-                      && node.parentNode.closest('b.b'));
+      var holder = node.parentNode;
+      var masked = !!(holder && holder.closest && holder.closest('b.b'));
+      var fmtEl = holder && holder.closest ? holder.closest('[data-f]') : null;
+      var fid = fmtEl ? (parseInt(fmtEl.getAttribute('data-f'), 10) || 0) : 0;
       var text = node.nodeValue;
-      for (var i = 0; i < text.length; i++) out.push({ c: text[i], masked: masked });
+      for (var i = 0; i < text.length; i++) {
+        out.push({ c: text[i], masked: masked, f: fid });
+      }
     }
     return out;
   }
@@ -736,19 +752,25 @@ document.querySelectorAll('b.b').forEach(function(el){
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  /** 把字符写回段落（规则和生成时保持一致：答案裹成 b.b，空格留在外面） */
+  /** 把字符写回段落（按「格式 + 是否遮住」分组，规则和生成时一致） */
   function writeBlock(el, chars){
-    var html = '', buf = '', state = null, out = [];
+    var out = [], buf = '', cur = null;
     function flush(){
       if (!buf) return;
-      if (!state) { out.push(escHtml(buf)); }
-      else {
+      var fid = cur[0], masked = cur[1];
+      if (!masked) {
+        out.push(fid === 0 ? escHtml(buf)
+                           : '<span data-f="' + fid + '">' + escHtml(buf) + '</span>');
+      } else {
         var core = buf.replace(/^ +| +$/g, '');
         if (!core) { out.push(escHtml(buf)); }
         else {
-          out.push(buf.slice(0, buf.length - buf.replace(/^ +/, '').length));
-          out.push('<b class="b">' + escHtml(core) + '</b>');
-          out.push(buf.slice(buf.replace(/ +$/, '').length));
+          var lead = buf.length - buf.replace(/^ +/, '').length;
+          var trail = buf.length - buf.replace(/ +$/, '').length;
+          out.push(buf.slice(0, lead)
+                   + '<b class="b"' + (fid ? ' data-f="' + fid + '"' : '') + '>'
+                   + escHtml(core) + '</b>'
+                   + buf.slice(buf.length - trail));
         }
       }
       buf = '';
@@ -760,8 +782,9 @@ document.querySelectorAll('b.b').forEach(function(el){
         out.push('<i class="cl" style="width:' + (ch.w || '2em') + '"></i>');
         continue;
       }
-      if (state === null) state = ch.masked;
-      if (ch.masked !== state) { flush(); state = ch.masked; }
+      var key = [ch.f || 0, ch.masked ? 1 : 0];
+      if (cur === null) { cur = key; }
+      else if (key[0] !== cur[0] || key[1] !== cur[1]) { flush(); cur = key; }
       buf += ch.c;
     }
     flush();
@@ -816,14 +839,24 @@ document.querySelectorAll('b.b').forEach(function(el){
   /* ---- 浮动小菜单 ---- */
   var selMenu = document.createElement('div');
   selMenu.id = 'selmenu';
-  selMenu.innerHTML = '<button data-act="mask">涂黑</button>'
-                    + '<button data-act="unmask">取消涂黑</button>';
+  selMenu.innerHTML = '<span class="fmtlabel"></span>'
+                    + '<button data-act="mask">涂黑</button>'
+                    + '<button data-act="unmask">取消涂黑</button>'
+                    + '<span class="vsep"></span>'
+                    + '<button data-act="fmask" title="全文所有相同格式的文字一起涂黑">同格式涂黑</button>'
+                    + '<button data-act="funmask" title="全文所有相同格式的文字一起取消涂黑">同格式取消</button>';
   document.body.appendChild(selMenu);
 
   function hideMenu(){ selMenu.classList.remove('show'); }
 
-  function showMenu(rect){
+  function showMenu(rect, fmtId){
     selMenu.classList.add('show');
+    var lb = selMenu.querySelector('.fmtlabel');
+    if (lb) {
+      var name = (typeof fmtId === 'number' && FMT[fmtId]) ? FMT[fmtId] : '';
+      lb.textContent = name;
+      lb.style.display = name ? '' : 'none';
+    }
     var top = rect.top - 42;
     if (top < 8) top = rect.bottom + 10;
     selMenu.style.top = Math.max(6, top) + 'px';
@@ -844,13 +877,17 @@ document.querySelectorAll('b.b').forEach(function(el){
     if (!startEl.closest('.page') || !endEl.closest('.page')) return null;
     var rect = range.getBoundingClientRect();
     if (!rect || (!rect.width && !rect.height)) return null;
-    return { range: range, rect: rect };
+    var holder = range.startContainer.nodeType === 1
+      ? range.startContainer : range.startContainer.parentNode;
+    var fmtEl = holder && holder.closest ? holder.closest('[data-f]') : null;
+    var fmtId = fmtEl ? (parseInt(fmtEl.getAttribute('data-f'), 10) || 0) : 0;
+    return { range: range, rect: rect, fmt: fmtId };
   }
 
   document.addEventListener('selectionchange', function(){
     if (document.body.classList.contains('draw')) { hideMenu(); return; }
     var info = selectionInfo();
-    if (info) showMenu(info.rect); else hideMenu();
+    if (info) showMenu(info.rect, info.fmt); else hideMenu();
   });
 
   selMenu.addEventListener('mousedown', function(e){ e.preventDefault(); });  // 别把选区点没了
@@ -860,7 +897,16 @@ document.querySelectorAll('b.b').forEach(function(el){
     var info = selectionInfo();
     hideMenu();
     if (!info) return;
-    applyMask(info.range, act === 'mask');
+    if (act === 'mask' || act === 'unmask') {
+      applyMask(info.range, act === 'mask');
+      return;
+    }
+    var n = applyFormatMask(info.fmt, act === 'fmask');
+    var sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+    var name = FMT[info.fmt] || '该格式';
+    toast(n ? ('已把 ' + n + ' 段「' + name + '」' + (act === 'fmask' ? '涂黑' : '取消涂黑'))
+            : ('全文没有其他「' + name + '」的文字'));
   });
 
   function applyMask(range, mask){
@@ -890,6 +936,41 @@ document.querySelectorAll('b.b').forEach(function(el){
       var sel = window.getSelection();
       if (sel) sel.removeAllRanges();
     }
+  }
+
+  /** 按格式批量涂黑 / 取消：全文所有同格式的文字一起处理 */
+  function applyFormatMask(fmtId, mask){
+    var touched = 0;
+    document.querySelectorAll('.page [data-b]').forEach(function(el){
+      var chars = readBlock(el);
+      var hit = false;
+      for (var i = 0; i < chars.length; i++) {
+        if (chars[i].hole) continue;
+        if ((chars[i].f || 0) === fmtId) { chars[i].masked = mask; hit = true; }
+      }
+      if (!hit) return;
+      writeBlock(el, chars);
+      overrides[blockKey(el)] = chars.map(function(c){
+        return c.hole ? '' : (c.masked ? '1' : '0');
+      }).join('');
+      touched++;
+    });
+    if (touched) saveMasks();
+    return touched;
+  }
+
+  /** 屏幕下方的一句轻提示 */
+  function toast(msg){
+    var t = document.getElementById('toast');
+    if (!t) {
+      t = document.createElement('div');
+      t.id = 'toast';
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._timer);
+    t._timer = setTimeout(function(){ t.classList.remove('show'); }, 2000);
   }
 
   /** 打开页面时，把用户以前手动改过的段落复原 */
