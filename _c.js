@@ -1,189 +1,4 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>__TITLE__ · 黑幕自测版</title>
-<style>
-  :root{
-    --ink:#1b1b1b; --dim:#8b8779; --line:#e7e3da;
-    --mask:#1a1a1a; --hl:#ffe9a8; --hl-ink:#b3261e;
-  }
-  *{box-sizing:border-box}
-  html{-webkit-text-size-adjust:100%}
-  body{
-    margin:0; background:#f4f2ed; color:var(--ink);
-    font-family:"FangSong","STFangsong","FangSong_GB2312","KaiTi","Microsoft YaHei",serif;
-    font-size:17px; line-height:1.95;
-  }
-  header{position:sticky; top:0; z-index:10; background:rgba(244,242,237,.94);
-         border-bottom:1px solid var(--line); backdrop-filter:blur(6px)}
-  .bar{max-width:880px; margin:0 auto; padding:9px 18px; display:flex; gap:10px; align-items:center; flex-wrap:wrap}
-  .bar h1{font-size:15px; margin:0; font-weight:600; letter-spacing:.5px; flex:1 1 auto}
-  .bar h1 small{font-weight:400; color:var(--dim); margin-left:8px; font-size:12.5px}
-  button{font:inherit; font-size:13px; padding:5px 12px; cursor:pointer; border:1px solid #cfcabd;
-         background:#fff; color:#333; border-radius:6px; line-height:1.5}
-  button:hover{background:#f0ede6}
-  main{max-width:880px; margin:0 auto; padding:8px 18px 90px}
-  .page{position:relative; background:#fff; border:1px solid var(--line); border-radius:10px;
-        padding:26px 32px 20px; margin:16px 0; box-shadow:0 1px 2px rgba(0,0,0,.03)}
-  .page .pn{position:absolute; right:13px; top:9px; font-size:11px; color:#cdc8bb;
-            font-family:system-ui,sans-serif}
-  h1.t{font-size:22px; text-align:center; margin:12px 0 18px; letter-spacing:3px;
-       font-family:"SimHei","Microsoft YaHei",sans-serif}
-  h2.t{font-size:18px; margin:20px 0 10px; letter-spacing:1px;
-       font-family:"SimHei","Microsoft YaHei",sans-serif}
-  h2.t:first-child, h1.t:first-child{margin-top:6px}
-  p{margin:0 0 10px; text-indent:2em; text-align:justify}
-  b.b{
-    font-weight:inherit; color:transparent; background:var(--mask);
-    border-radius:3px; padding:0 1px; margin:0 1px; cursor:pointer;
-    -webkit-tap-highlight-color:transparent;
-  }
-  b.b:hover, b.b.on, b.b:hover.on{background:var(--hl); color:var(--hl-ink)}
-  i.cl{display:inline-block; height:.78em; border-bottom:1.5px solid #b3ada0;
-       vertical-align:-.05em; margin:0 .14em; min-width:1.2em}
-  /* ---- 批注 ---- */
-  .note{position:absolute; z-index:6; width:214px; border-radius:9px; overflow:hidden;
-        box-shadow:0 3px 14px rgba(0,0,0,.18); font-family:"Microsoft YaHei",system-ui,sans-serif;
-        font-size:13.5px; line-height:1.55; color:#20201c; background:#fff3a8;
-        border:1px solid rgba(0,0,0,.08)}
-  .note .nb{display:flex; align-items:center; padding:4px 4px 2px 7px; cursor:move;
-            user-select:none; -webkit-user-select:none; touch-action:none}
-  .note .dots{display:flex; gap:4px; flex:1}
-  .note .dots i{width:11px; height:11px; border-radius:50%; cursor:pointer; display:block;
-                border:1px solid rgba(0,0,0,.15); box-shadow:inset 0 0 0 1px #ffffff66}
-  .note .dots i:hover{transform:scale(1.28)}
-  .note .dx{border:0; background:none; font:inherit; font-size:15px; line-height:1;
-            color:#00000050; cursor:pointer; padding:0 5px; border-radius:4px}
-  .note .dx:hover{color:#b3261e; background:#00000012}
-  .note .nt{padding:1px 9px 8px; min-height:1.45em; outline:none; white-space:pre-wrap;
-            word-break:break-word; cursor:text}
-  .note .nt:empty::before{content:"写点批注…"; color:#00000045}
-  button.anno{border-style:dashed; color:#6b6350}
-  button.act{background:#333c4a; color:#fff; border-color:#333c4a}
-  /* ---- 手绘涂鸦 ---- */
-  canvas.ink{position:absolute; inset:0; z-index:4; pointer-events:none;
-             touch-action:none; border-radius:9px}
-  body.draw .page, body.quickdraw .page{cursor:crosshair}
-  body.draw.eraser canvas.ink{cursor:cell}
-  body.draw b.b, body.quickdraw b.b{pointer-events:none}
-  body.draw i.cl, body.quickdraw i.cl{pointer-events:none}
-  body.draw .page{box-shadow:0 0 0 2px #ffd43b88, 0 1px 2px rgba(0,0,0,.03)}
-  #pen{position:fixed; right:16px; bottom:16px; z-index:20; display:none;
-       background:#fffbee; border:1px solid #e5ddc8; border-radius:12px;
-       box-shadow:0 8px 26px rgba(0,0,0,.18); padding:10px 11px 9px;
-       font-family:"Microsoft YaHei",system-ui,sans-serif; font-size:13px; width:246px}
-  body.draw #pen{display:block}
-  #pen .ttl{font-size:11.5px; color:#8d8677; margin:0 0 7px}
-  #pen .pr{display:flex; align-items:center; gap:6px; margin-bottom:8px; flex-wrap:wrap}
-  #pen .pr:last-child{margin-bottom:0}
-  #pen .pc{width:21px; height:21px; border-radius:50%; cursor:pointer;
-           border:2px solid #fff; box-shadow:0 0 0 1px #00000030}
-  #pen .pc.act{box-shadow:0 0 0 2px #333c4a; transform:scale(1.08)}
-  #pen button{font-size:12px; padding:3px 8px; border-radius:6px; background:#fff;
-              border:1px solid #d8d2c0; color:#3c3a33}
-  #pen button:hover{background:#f2eee0}
-  #pen button.act{background:#333c4a; color:#fff; border-color:#333c4a}
-  #pen .sep{flex:1 1 auto}
-  #pen .x{position:absolute; right:6px; top:5px; border:0; background:none;
-          font-size:15px; line-height:1; color:#aaa191; cursor:pointer; padding:2px 4px}
-  #pen .x:hover{color:#b3261e}
-  .hint{max-width:880px; margin:12px auto 0; padding:0 18px; font-size:12.5px;
-        color:var(--dim); line-height:1.8}
-  .k{color:#b3261e}
-  .foot{max-width:880px; margin:4px auto 44px; padding:0 18px; text-align:center;
-        font-size:12px; color:#c0baab; line-height:1.8}
-  /* ---- 划选涂黑 ---- */
-  #selmenu{position:fixed; z-index:30; display:none; padding:5px 6px;
-           background:#2f333d; border-radius:9px; box-shadow:0 5px 18px rgba(0,0,0,.28);
-           font-family:"Microsoft YaHei",system-ui,sans-serif; font-size:13px;
-           transform:translateX(-50%); white-space:nowrap;
-           flex-wrap:wrap; justify-content:center; max-width:94vw; box-sizing:border-box}
-  #selmenu.show{display:flex; gap:4px}
-  #selmenu button{border:0; background:transparent; color:#fff; font:inherit;
-                  padding:4px 10px; border-radius:6px; cursor:pointer}
-  #selmenu button:hover{background:#ffffff2e}
-  #selmenu .hintx{color:#ffffff8c; padding:4px 4px 4px 7px; font-size:12px}
-  #selmenu .fmtlabel{color:#ffd88a; font-size:12px; padding:4px 8px 4px 6px;
-                     border-right:1px solid #ffffff2b; margin-right:2px; max-width:150px;
-                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-  #selmenu .vsep{width:1px; background:#ffffff33; margin:3px 3px}
-  #toast{position:fixed; left:50%; bottom:26px; z-index:40; transform:translate(-50%, 10px);
-         background:#2f333d; color:#fff; padding:8px 16px; border-radius:8px;
-         font-family:"Microsoft YaHei",system-ui,sans-serif; font-size:13px;
-         opacity:0; pointer-events:none; transition:opacity .18s, transform .18s;
-         box-shadow:0 6px 20px rgba(0,0,0,.25); max-width:88vw; text-align:center}
-  #toast.show{opacity:1; transform:translate(-50%, 0)}
-  body.draw #selmenu{display:none !important}
-  @media (max-width:560px){
-    body{font-size:16px}
-    main{padding:6px 8px 60px}
-    .page{padding:18px 15px 14px}
-    h1.t{font-size:19px}
-    .bar{padding:8px 12px; gap:6px}
-    .bar h1{font-size:14px; flex:1 1 100%}
-    .bar h1 small{display:none}
-    button{font-size:12px; padding:4px 9px}
-    .hint{margin-top:8px; padding:0 12px; font-size:12px}
-  }
-  @media print{
-    header,.hint,.foot{display:none}
-    .note{display:none}
-    body{background:#fff}
-    .page{border:none; box-shadow:none; padding:0; margin:14px 0}
-    b.b{background:#fff; color:#000; border-bottom:1px solid #999; border-radius:0}
-  }
-</style>
-</head>
-<body>
-<header>
-  <div class="bar">
-    <h1>__TITLE__ <small>黑幕自测 · 悬停/点击显示答案</small></h1>
-    <button id="all">全部显示</button>
-    <button id="none">全部隐藏</button>
-    <button id="penBtn" title="打开后在页面上按住鼠标拖动即可画线">✎ 画笔</button>
-    <button class="anno" id="exp" title="把批注和涂鸦存成 JSON 文件（备份/换设备用）">导出</button>
-    <button class="anno" id="imp" title="从 JSON 备份文件恢复批注和涂鸦">导入</button>
-    <button class="anno" id="clr" title="删除全部批注">清空批注</button>
-    <input type="file" id="impf" accept=".json,application/json" hidden>
-  </div>
-</header>
-<div id="pen">
-  <button class="x" id="exitPen2" title="退出画笔">×</button>
-  <div class="ttl">按住鼠标拖动＝画线；点颜色/粗细后继续画</div>
-  <div class="pr">
-    <span class="pc act" data-c="#e23b2e" style="background:#e23b2e" title="红色"></span>
-    <span class="pc" data-c="#f08c00" style="background:#f08c00" title="橙色"></span>
-    <span class="pc" data-c="#2f9e44" style="background:#2f9e44" title="绿色"></span>
-    <span class="pc" data-c="#1971c2" style="background:#1971c2" title="蓝色"></span>
-    <span class="pc" data-c="#111111" style="background:#111111" title="黑色"></span>
-    <span class="pc" data-c="#ffd43b" style="background:#ffd43b" title="荧光黄（粗一点更好看）"></span>
-  </div>
-  <div class="pr">
-    <button class="pw" data-w="0.0018">细</button>
-    <button class="pw act" data-w="0.0035">中</button>
-    <button class="pw" data-w="0.0075">粗</button>
-    <span class="sep"></span>
-    <button id="eraserBtn" title="点一下擦掉一整笔">橡皮</button>
-  </div>
-  <div class="pr">
-    <button id="undoInk" title="撤销上一步（Ctrl+Z）">撤销</button>
-    <button id="redoInk" title="重做（Ctrl+Y）">重做</button>
-    <button id="clrInk" title="清掉当前这一页的所有线（可 Ctrl+Z 撤回）">清本页</button>
-    <button id="clrInkAll" title="清掉全部页面的线（可 Ctrl+Z 撤回）">清全部</button>
-  </div>
-</div>
-<div class="hint">黑色方块 = 原文用黑体或下划线标出的重点与填空：<b class="k">鼠标悬停</b>显示答案，<b class="k">点一下</b>常亮（再点复原）。共 __PAGES__ 页。<br>
-<b class="k">划选文字</b>会弹出小菜单（涂黑 / 取消涂黑 / 同格式批量）；<b class="k">按住 Alt 划选</b>则直接生效，不用点菜单。<br>
-<b class="k">按住 Ctrl 拖动</b>＝随手画线（圈重点、划横线）；点顶部 <b class="k">✎ 画笔</b> 进入正式画笔模式，可选颜色粗细、有橡皮。<br>
-<b class="k">双击空白处</b>写批注（能拖动、换颜色）。<b class="k">Ctrl+Z 撤销</b>、<b class="k">Ctrl+Y 重做</b> —— 涂黑、批注、手绘都算。<br>
-所有改动都自动存在本机浏览器里。<b class="k">换浏览器或清理缓存前</b>，记得点「导出」存一份备份。</div>
-<main>
-__BODY__
-</main>
-<div class="foot">__FOOTER__</div>
-<script>
+
 document.querySelectorAll('b.b').forEach(function(el){
   el.addEventListener('click', function(e){
     e.preventDefault();
@@ -203,7 +18,7 @@ document.querySelectorAll('b.b').forEach(function(el){
 
 /* ================= 批注 ================= */
 (function(){
-  var DOC = '__DOCKEY__';
+  var DOC = '5f3b55e9b2b6';
   var KEY = 'pdfmask-notes::' + DOC;
   var IKEY = 'pdfmask-ink::' + DOC;
   var COLORS = ['#fff3a8','#c8f2c8','#c9e4ff','#ffd6e0','#ffe0b3','#e6d9ff'];
@@ -785,7 +600,7 @@ document.querySelectorAll('b.b').forEach(function(el){
 
   /* ================= 划选涂黑：把选中的文字盖住 / 放开 ================= */
   var MKEY = 'pdfmask-mask::' + DOC;
-  var FMT = __FMT__ || [];          // 格式名表，下标就是元素的 data-f
+  var FMT = ["仿宋 13.6", "仿宋 13.6 下划线", "黑体 13.6", "黑体 15.9"] || [];          // 格式名表，下标就是元素的 data-f
   var overrides = {};
   try { overrides = JSON.parse(localStorage.getItem(MKEY) || '{}') || {}; } catch (e) { overrides = {}; }
   function saveMasks(){
@@ -1185,6 +1000,3 @@ document.querySelectorAll('b.b').forEach(function(el){
 
   notes.forEach(function(n){ add(n, false); });
 })();
-</script>
-</body>
-</html>
