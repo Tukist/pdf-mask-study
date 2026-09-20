@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 打包产物
+build/
+dist/
+*.spec
+
+# 生成的网页（示例的输出不进版本库）
+examples/*_背诵版.html
+*_背诵版.html
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
