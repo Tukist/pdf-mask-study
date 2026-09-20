@@ -10,7 +10,7 @@
     convert("复习资料.pdf")          # 生成 复习资料_背诵版.html
 """
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __all__ = ["analyze", "render", "convert"]
 
 from .analyze import analyze, stats           # noqa: F401
