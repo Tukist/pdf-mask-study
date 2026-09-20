@@ -94,6 +94,17 @@
   .k{color:#b3261e}
   .foot{max-width:880px; margin:4px auto 44px; padding:0 18px; text-align:center;
         font-size:12px; color:#c0baab; line-height:1.8}
+  /* ---- 划选涂黑 ---- */
+  #selmenu{position:fixed; z-index:30; display:none; padding:5px 6px;
+           background:#2f333d; border-radius:9px; box-shadow:0 5px 18px rgba(0,0,0,.28);
+           font-family:"Microsoft YaHei",system-ui,sans-serif; font-size:13px;
+           transform:translateX(-50%); white-space:nowrap}
+  #selmenu.show{display:flex; gap:4px}
+  #selmenu button{border:0; background:transparent; color:#fff; font:inherit;
+                  padding:4px 10px; border-radius:6px; cursor:pointer}
+  #selmenu button:hover{background:#ffffff2e}
+  #selmenu .hintx{color:#ffffff8c; padding:4px 4px 4px 7px; font-size:12px}
+  body.draw #selmenu{display:none !important}
   @media (max-width:560px){
     body{font-size:16px}
     main{padding:6px 8px 60px}
@@ -152,8 +163,9 @@
   </div>
 </div>
 <div class="hint">黑色方块 = 原文用黑体或下划线标出的重点与填空：<b class="k">鼠标悬停</b>显示答案，<b class="k">点一下</b>常亮（再点复原）。共 __PAGES__ 页。<br>
-<b class="k">双击页面任意位置</b>可以写批注（能拖动、换颜色）；点顶部 <b class="k">✎ 画笔</b> 可在页面上按住鼠标随手画线 —— 圈重点、划横线、荧光笔都行，再点一次「画笔」退出，画错了按 <b class="k">Ctrl+Z</b> 撤销。<br>
-批注和手绘都自动存在本机浏览器里。<b class="k">换浏览器或清理缓存前</b>，记得点「导出」存一份备份。</div>
+用鼠标<b class="k">划选一段文字</b>会弹出「涂黑 / 取消涂黑」—— 原文漏标的地方可以自己补，标错的也能放开。<br>
+<b class="k">双击空白处</b>写批注（能拖动、换颜色）；点顶部 <b class="k">✎ 画笔</b> 可在页面上随手画线 —— 圈重点、划横线、荧光笔都行，再点一次「画笔」退出，画错了按 <b class="k">Ctrl+Z</b> 撤销。<br>
+涂黑、批注和手绘都自动存在本机浏览器里。<b class="k">换浏览器或清理缓存前</b>，记得点「导出」存一份备份。</div>
 <main>
 __BODY__
 </main>
@@ -304,11 +316,13 @@ document.querySelectorAll('b.b').forEach(function(el){
     notes.forEach(function(n){ add(n, false); });
   }
 
-  /* 双击新建 */
+  /* 双击新建（双击到文字上时交给「涂黑」菜单处理） */
   var mainEl = document.querySelector('main');
   if (mainEl) mainEl.addEventListener('dblclick', function(e){
     if (document.body.classList.contains('draw')) return;
     if (e.target.closest('.note')) return;
+    var s = window.getSelection && window.getSelection();
+    if (s && !s.isCollapsed) return;          // 选中了词 → 让划选菜单出场
     var page = e.target.closest('.page');
     if (!page) return;
     var pr = page.getBoundingClientRect();
@@ -334,11 +348,15 @@ document.querySelectorAll('b.b').forEach(function(el){
   var bClr = document.getElementById('clr');
   var fImp = document.getElementById('impf');
   if (bExp) bExp.onclick = function(){
-    if (!notes.length && !strokes.length) { alert('还没有批注或涂鸦'); return; }
+    if (!notes.length && !strokes.length && !Object.keys(overrides).length) {
+      alert('还没有批注、涂鸦或手动涂黑'); return;
+    }
     var d = new Date();
     var name = '批注_' + d.getFullYear() + ('0' + (d.getMonth() + 1)).slice(-2) + ('0' + d.getDate()).slice(-2) + '.json';
     var a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify({ version: 2, notes: notes, strokes: strokes }, null, 1)], { type: 'application/json' }));
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(
+      { version: 3, notes: notes, strokes: strokes, masks: overrides }, null, 1)],
+      { type: 'application/json' }));
     a.download = name;
     document.body.appendChild(a);
     a.click();
@@ -350,12 +368,13 @@ document.querySelectorAll('b.b').forEach(function(el){
     if (!f) return;
     var fr = new FileReader();
     fr.onload = function(){
-      var data, addNotes = [], addInk = [];
+      var data, addNotes = [], addInk = [], addMasks = null;
       try { data = JSON.parse(fr.result); } catch (err) { alert('这个文件不是有效的备份'); return; }
       if (Array.isArray(data)) addNotes = data;                 // 旧版：只有批注
       else if (data && typeof data === 'object') {
         if (Array.isArray(data.notes)) addNotes = data.notes;
         if (Array.isArray(data.strokes)) addInk = data.strokes;
+        if (data.masks && typeof data.masks === 'object') addMasks = data.masks;
       } else { alert('这个文件不是有效的备份'); return; }
       var n = 0;
       addNotes.forEach(function(x){
@@ -372,12 +391,22 @@ document.querySelectorAll('b.b').forEach(function(el){
         strokes.push(x);
         k++;
       });
+      var mk = 0;
+      if (addMasks) {
+        Object.keys(addMasks).forEach(function(key){
+          overrides[key] = addMasks[key];
+          mk++;
+        });
+        saveMasks();
+        applyOverrides();
+      }
       persist();
       saveInk();
       redraw();
       repaintAll();
       ensureVisible();
-      alert('已导入：批注 ' + n + ' 条，涂鸦 ' + k + ' 笔');
+      alert('已导入：批注 ' + n + ' 条，涂鸦 ' + k + ' 笔'
+            + (mk ? '，手动涂黑 ' + mk + ' 段' : ''));
     };
     fr.readAsText(f);
     e.target.value = '';
@@ -669,8 +698,224 @@ document.querySelectorAll('b.b').forEach(function(el){
     doUndo();
   });
 
+  /* ================= 划选涂黑：把选中的文字盖住 / 放开 ================= */
+  var MKEY = 'pdfmask-mask::' + DOC;
+  var overrides = {};
+  try { overrides = JSON.parse(localStorage.getItem(MKEY) || '{}') || {}; } catch (e) { overrides = {}; }
+  function saveMasks(){
+    try { localStorage.setItem(MKEY, JSON.stringify(overrides)); } catch (e) {}
+  }
+
+  function blockKey(el){
+    var page = el.closest('.page');
+    if (!page) return '';
+    return 'p' + page.id.slice(1) + '-' + el.getAttribute('data-b');
+  }
+
+  /** 读回段落的字符（含每个字当前是否被遮），填空横线记成 hole */
+  function readBlock(el){
+    var out = [];
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT, null);
+    var node;
+    while ((node = walker.nextNode())) {
+      if (node.nodeType === 1) {
+        if (node.tagName === 'I' && node.classList.contains('cl')) {
+          out.push({ hole: true, w: node.style.width });
+        }
+        continue;                       // 元素本身不是字符，字符在它的文本子节点里
+      }
+      var masked = !!(node.parentNode && node.parentNode.closest
+                      && node.parentNode.closest('b.b'));
+      var text = node.nodeValue;
+      for (var i = 0; i < text.length; i++) out.push({ c: text[i], masked: masked });
+    }
+    return out;
+  }
+
+  function escHtml(s){
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  /** 把字符写回段落（规则和生成时保持一致：答案裹成 b.b，空格留在外面） */
+  function writeBlock(el, chars){
+    var html = '', buf = '', state = null, out = [];
+    function flush(){
+      if (!buf) return;
+      if (!state) { out.push(escHtml(buf)); }
+      else {
+        var core = buf.replace(/^ +| +$/g, '');
+        if (!core) { out.push(escHtml(buf)); }
+        else {
+          out.push(buf.slice(0, buf.length - buf.replace(/^ +/, '').length));
+          out.push('<b class="b">' + escHtml(core) + '</b>');
+          out.push(buf.slice(buf.replace(/ +$/, '').length));
+        }
+      }
+      buf = '';
+    }
+    for (var i = 0; i < chars.length; i++) {
+      var ch = chars[i];
+      if (ch.hole) {
+        flush();
+        out.push('<i class="cl" style="width:' + (ch.w || '2em') + '"></i>');
+        continue;
+      }
+      if (state === null) state = ch.masked;
+      if (ch.masked !== state) { flush(); state = ch.masked; }
+      buf += ch.c;
+    }
+    flush();
+    el.innerHTML = out.join('');
+  }
+
+  /** 可视字符序号 → chars 数组下标（跳过填空横线） */
+  function visToArr(chars, vis){
+    var v = 0;
+    for (var i = 0; i < chars.length; i++) {
+      if (chars[i].hole) continue;
+      if (v === vis) return i;
+      v++;
+    }
+    return chars.length;
+  }
+
+  /** 节点内某个位置对应的「可视字符偏移」 */
+  function offsetOf(el, container, offset){
+    if (!container || container.nodeType !== 3) return -1;
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    var total = 0, node;
+    while ((node = walker.nextNode())) {
+      if (node === container) return total + offset;
+      total += node.nodeValue.length;
+    }
+    return -1;
+  }
+
+  /** 兜底：边界落在元素节点上（例如三击选中整段）时按相交的文本节点取整 */
+  function fallbackSpan(el, range){
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    var idx = 0, start = -1, end = -1, node;
+    while ((node = walker.nextNode())) {
+      var len = node.nodeValue.length;
+      if (range.intersectsNode(node)) {
+        if (start < 0) start = idx;
+        end = idx + len;
+      }
+      idx += len;
+    }
+    return start < 0 ? null : { start: start, end: end };
+  }
+
+  function spanInBlock(el, range){
+    var s = offsetOf(el, range.startContainer, range.startOffset);
+    var e = offsetOf(el, range.endContainer, range.endOffset);
+    if (s >= 0 && e > s) return { start: s, end: e };
+    return fallbackSpan(el, range);
+  }
+
+  /* ---- 浮动小菜单 ---- */
+  var selMenu = document.createElement('div');
+  selMenu.id = 'selmenu';
+  selMenu.innerHTML = '<button data-act="mask">涂黑</button>'
+                    + '<button data-act="unmask">取消涂黑</button>';
+  document.body.appendChild(selMenu);
+
+  function hideMenu(){ selMenu.classList.remove('show'); }
+
+  function showMenu(rect){
+    selMenu.classList.add('show');
+    var top = rect.top - 42;
+    if (top < 8) top = rect.bottom + 10;
+    selMenu.style.top = Math.max(6, top) + 'px';
+    selMenu.style.left = Math.min(window.innerWidth - 80,
+                                  Math.max(80, rect.left + rect.width / 2)) + 'px';
+  }
+
+  function selectionInfo(){
+    var sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+    var range = sel.getRangeAt(0);
+    var startEl = range.startContainer.nodeType === 1
+      ? range.startContainer : range.startContainer.parentNode;
+    var endEl = range.endContainer.nodeType === 1
+      ? range.endContainer : range.endContainer.parentNode;
+    if (!startEl || !endEl || !startEl.closest || !endEl.closest) return null;
+    if (startEl.closest('.note') || endEl.closest('.note')) return null;
+    if (!startEl.closest('.page') || !endEl.closest('.page')) return null;
+    var rect = range.getBoundingClientRect();
+    if (!rect || (!rect.width && !rect.height)) return null;
+    return { range: range, rect: rect };
+  }
+
+  document.addEventListener('selectionchange', function(){
+    if (document.body.classList.contains('draw')) { hideMenu(); return; }
+    var info = selectionInfo();
+    if (info) showMenu(info.rect); else hideMenu();
+  });
+
+  selMenu.addEventListener('mousedown', function(e){ e.preventDefault(); });  // 别把选区点没了
+  selMenu.addEventListener('click', function(e){
+    var act = e.target.getAttribute && e.target.getAttribute('data-act');
+    if (!act) return;
+    var info = selectionInfo();
+    hideMenu();
+    if (!info) return;
+    applyMask(info.range, act === 'mask');
+  });
+
+  function applyMask(range, mask){
+    var targets = [];
+    document.querySelectorAll('.page [data-b]').forEach(function(el){
+      if (range.intersectsNode(el)) targets.push(el);
+    });
+    if (!targets.length) return;
+
+    var touched = [];
+    targets.forEach(function(el){
+      var span = spanInBlock(el, range);
+      if (!span || span.end <= span.start) return;
+      var chars = readBlock(el);
+      var a = visToArr(chars, span.start);
+      var b = visToArr(chars, span.end);
+      for (var i = a; i < b; i++) {
+        if (!chars[i].hole) chars[i].masked = mask;
+      }
+      writeBlock(el, chars);
+      var bits = chars.map(function(c){ return c.hole ? '' : (c.masked ? '1' : '0'); }).join('');
+      overrides[blockKey(el)] = bits;
+      touched.push(el);
+    });
+    if (touched.length) {
+      saveMasks();
+      var sel = window.getSelection();
+      if (sel) sel.removeAllRanges();
+    }
+  }
+
+  /** 打开页面时，把用户以前手动改过的段落复原 */
+  function applyOverrides(){
+    Object.keys(overrides).forEach(function(key){
+      var m = /^p(\d+)-(\d+)$/.exec(key);
+      if (!m) return;
+      var page = document.getElementById('p' + m[1]);
+      if (!page) return;
+      var el = page.querySelector('[data-b="' + m[2] + '"]');
+      if (!el) return;
+      var bits = overrides[key] || '';
+      var chars = readBlock(el);
+      var v = 0;
+      for (var i = 0; i < chars.length; i++) {
+        if (chars[i].hole) continue;
+        if (v < bits.length) chars[i].masked = bits.charAt(v) === '1';
+        v++;
+      }
+      writeBlock(el, chars);
+    });
+  }
+
   var scrollT;
   window.addEventListener('scroll', function(){
+    hideMenu();
     clearTimeout(scrollT);
     scrollT = setTimeout(ensureVisible, 160);
   }, { passive: true });
@@ -688,6 +933,8 @@ document.querySelectorAll('b.b').forEach(function(el){
     b.classList.toggle('act', parseFloat(b.getAttribute('data-w')) === inkWidth);
   });
   if (penPref.on) setDraw(true); else ensureVisible();
+
+  applyOverrides();          // 恢复用户手动涂黑 / 放开过的段落
 
   notes.forEach(function(n){ add(n, false); });
 })();

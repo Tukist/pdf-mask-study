@@ -85,15 +85,17 @@ def render(pages: list[dict], title: str, footer: str = "") -> str:
     body = []
     for page in pages:
         parts = []
-        for block in page["blocks"]:
+        for bi, block in enumerate(page["blocks"]):
             chars = block["chars"]
             if not "".join(c["c"] for c in chars).strip():
                 continue
+            # data-b 是该段落在本页内的序号，浏览器里「手动涂黑」靠它定位
             tag = block["kind"]
             if tag in ("h1", "h2"):
-                parts.append('<%s class="t">%s</%s>' % (tag, render_chars(chars), tag))
+                parts.append('<%s class="t" data-b="%d">%s</%s>'
+                             % (tag, bi, render_chars(chars), tag))
             else:
-                parts.append("<p>%s</p>" % render_chars(chars))
+                parts.append('<p data-b="%d">%s</p>' % (bi, render_chars(chars)))
         body.append('<section class="page" id="p%d">'
                     '<span class="pn">%d</span>\n%s\n</section>'
                     % (page["page"], page["page"], "\n".join(parts)))

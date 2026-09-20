@@ -123,8 +123,20 @@ class RenderTests(unittest.TestCase):
     def test_html_contains_interactions(self):
         html = render(self.pages, "测试标题", "")
         for token in ('<b class="b">', 'canvas.ink', 'id="penBtn"', 'id="undoInk"',
-                      'id="exp"', "Ctrl+Z", "pdfmask-notes::", "pdfmask-ink::"):
+                      'id="exp"', "Ctrl+Z", "pdfmask-notes::", "pdfmask-ink::",
+                      "pdfmask-mask::", 'data-b="', "selmenu", "readBlock", "applyOverrides"):
             self.assertIn(token, html, "生成的 HTML 缺少：%s" % token)
+
+    def test_every_block_has_index(self):
+        """每个正文块都要带 data-b，否则「划选涂黑」定位不到段落。"""
+        html = render(self.pages, "t", "")
+        body = html.split("<main>")[1].split("</main>")[0]
+        paras = re.findall(r'<p data-b="\d+">', body)
+        heads = re.findall(r'<h[12] class="t" data-b="\d+">', body)
+        self.assertGreater(len(paras) + len(heads), 5)
+        # 不带 data-b 的 <p> 不该存在
+        plain = re.findall(r"<p>", body)
+        self.assertEqual(plain, [], "有段落漏了 data-b")
 
     def test_title_and_placeholders_are_filled(self):
         html = render(self.pages, "我的资料", "页脚示例")
